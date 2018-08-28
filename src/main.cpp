@@ -43,7 +43,11 @@ std::vector<Event> eventList;
 time_t getNtpTime()
 {
   Serial.println("Try to get date");
-  currentDate = NTPch.getNTPtime(-3.0, 0);
+
+  do {
+    currentDate = NTPch.getNTPtime(-3.0, 0);
+    delay(50);
+  } while(!currentDate.valid);
 
   if (currentDate.valid)
   {
@@ -53,7 +57,6 @@ time_t getNtpTime()
     return currentDate.epochTime;
   }
 
-  setSyncInterval(1);
   return 0;
 }
 
