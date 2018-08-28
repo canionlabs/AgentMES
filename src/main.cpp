@@ -25,14 +25,15 @@
 struct Event
 {
   char type;
-  unsigned long time;
+  time_t time;
 };
 
 NTPtime NTPch("0.br.pool.ntp.org");
 strDateTime currentDate;
-time_t prevDisplay = 0;
-
-long lastReconnectAttempt = 0;
+time_t currentTime = 0;
+time_t lastReconnectAttempt = 0;
+time_t lastSend = 0;
+time_t sendRate = 2;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -52,24 +53,18 @@ time_t getNtpTime()
     return currentDate.epochTime;
   }
 
+  setSyncInterval(1);
   return 0;
-}
-
-void printDigits(int digits)
-{
-  // utility for digital clock display: prints preceding colon and leading 0
-  Serial.print(":");
-  if (digits < 10)
-    Serial.print('0');
-  Serial.print(digits);
 }
 
 void digitalClockDisplay()
 {
   // digital clock display of the time
   Serial.print(hour());
-  printDigits(minute());
-  printDigits(second());
+  Serial.print(":");
+  Serial.print(minute());
+  Serial.print(":");
+  Serial.print(second());
   Serial.print(" ");
   Serial.print(day());
   Serial.print(" ");
@@ -106,7 +101,19 @@ void hibernate()
 
 void event()
 {
-  //   Serial.print(".");
+  Serial.print("?");
+
+  if ((currentTime - lastSend) > sendRate)
+  {
+    lastSend = currentTime;
+    Serial.print("|");
+
+    if (client.connected())
+    {
+      client.publish(MQTT_TOPIC, "ping");
+      Serial.print(".");
+    }
+  }
 }
 
 boolean reconnect()
@@ -144,7 +151,7 @@ void loop()
 {
   if (!client.connected())
   {
-    long now = millis();
+    time_t now = millis();
     if (now - lastReconnectAttempt > 5000)
     {
       lastReconnectAttempt = now;
@@ -164,10 +171,10 @@ void loop()
   // Update time
   if (timeStatus() != timeNotSet)
   {
-    if (now() != prevDisplay)
+    if (now() != currentTime)
     { //update the display only if time has changed
-      prevDisplay = now();
-      // digitalClockDisplay();
+      currentTime = now();
+      digitalClockDisplay();
     }
   }
 }
