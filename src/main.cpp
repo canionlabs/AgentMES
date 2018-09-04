@@ -5,22 +5,17 @@
 * @Last Modified time: 2018-08-18
 */
 
-#define UPDATE_RATE 60 // seconds
+#include "mes_defines.h"
 
-#define LED 2
-#define LED_GREEN 12
-#define LED_BLUE 13
-#define LED_RED 15
+#include "TypeSelector.h"
 
-#define PIN_INPUT D1
-
+#include <Ticker.h>
 #include "Arduino.h"
+#include <ArduinoJson.h>
 #include <NTPtimeESP.h>
 #include <PubSubClient.h>
 #include <TimeLib.h>
-#include <vector>
-
-#include "config.h"
+#include <queue>
 
 struct Event
 {
@@ -38,16 +33,22 @@ time_t sendRate = 2;
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-std::vector<Event> eventList;
+Ticker mailman;
+
+std::queue<Event> eventQueue;
+
+mes::TypeSelector typeSelector(INPUT_1, INPUT_2);
 
 time_t getNtpTime()
 {
-  Serial.println("Try to get date");
+  Serial.println("Updating date...");
 
-  do {
+  do
+  {
     currentDate = NTPch.getNTPtime(-3.0, 0);
-    delay(50);
-  } while(!currentDate.valid);
+    delay(100);
+    Serial.print("-");
+  } while (!currentDate.valid);
 
   if (currentDate.valid)
   {
@@ -79,7 +80,7 @@ void digitalClockDisplay()
 
 void connect()
 {
-  Serial.println("Connecting to Wi-Fi");
+  Serial.println("Connecting to Wi-Fi...");
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -102,26 +103,71 @@ void hibernate()
   ESP.deepSleep(5e6);
 }
 
-void event()
+void buildMessage(String *jsonStr, char type, time_t eventTime)
 {
-  Serial.print("?");
+  const size_t bufferSize = JSON_OBJECT_SIZE(2);
+  DynamicJsonBuffer jsonBuffer(bufferSize);
 
-  if ((currentTime - lastSend) > sendRate)
+  JsonObject &root = jsonBuffer.createObject();
+  root["p"] = type;
+  root["t"] = eventTime;
+
+  root.printTo(*jsonStr);
+}
+
+void sendEvent()
+{
+  if (!eventQueue.empty())
   {
-    lastSend = currentTime;
-    Serial.print("|");
+    Event event = eventQueue.front();
+
+    String msg;
+    buildMessage(&msg, event.type, event.time);
 
     if (client.connected())
     {
-      client.publish(MQTT_TOPIC, "ping");
+      client.publish(MQTT_TOPIC, msg.c_str());
+      Serial.print("_");
+
+      eventQueue.pop();
+    }
+  }
+}
+
+void event()
+{
+  if ((currentTime - lastSend) > sendRate)
+  {
+    lastSend = currentTime;
+
+    if (client.connected())
+    {
+      String msg;
+      buildMessage(&msg, 'A', currentTime);
+
+      client.publish(MQTT_TOPIC, msg.c_str());
       Serial.print(".");
+    }
+    else
+    {
+      Event event;
+      event.type = 'A';
+      event.time = lastSend;
+
+      eventQueue.push(event);
+
+      Serial.println("cached event");
     }
   }
 }
 
 boolean reconnect()
 {
+#ifdef MQTT_AUTH
   if (client.connect(MES_DEVICE_ID, MQTT_USER, MQTT_PASS))
+#else
+  if (client.connect(MES_DEVICE_ID))
+#endif
   {
     // Once connected, publish an announcement...
     client.publish(MQTT_TOPIC, "I'm Alive!");
@@ -137,47 +183,58 @@ void setup()
   {
   }
 
-  Serial.println();
   Serial.println("Booted");
 
   connect();
   client.setServer(MQTT_BROKER, MQTT_PORT);
 
-  pinMode(PIN_INPUT, INPUT);
-  attachInterrupt(PIN_INPUT, event, RISING);
+  pinMode(INPUT_PIN, INPUT);
+  attachInterrupt(INPUT_PIN, event, RISING);
 
-  setSyncProvider(getNtpTime);
-  setSyncInterval(1);
+
+  pinMode(LED_BLUE, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+
+  digitalWrite(LED_GREEN, LOW);
+  digitalWrite(LED_BLUE, LOW);
+
+  // setSyncProvider(getNtpTime);
+  // setSyncInterval(1);
+
+  mailman.attach(0.5, sendEvent);
 }
 
 void loop()
 {
-  if (!client.connected())
-  {
-    time_t now = millis();
-    if (now - lastReconnectAttempt > 5000)
-    {
-      lastReconnectAttempt = now;
-      // Attempt to reconnect
-      if (reconnect())
-      {
-        lastReconnectAttempt = 0;
-      }
-    }
-  }
-  else
-  {
-    // Client connected
-    client.loop();
-  }
+  // Serial.print(digitalRead(INPUT_1));
+  // Serial.println(digitalRead(INPUT_2));
 
-  // Update time
-  if (timeStatus() != timeNotSet)
-  {
-    if (now() != currentTime)
-    { //update the display only if time has changed
-      currentTime = now();
-      digitalClockDisplay();
-    }
-  }
+  // if (!client.connected())
+  // {
+  //   time_t now = millis();
+  //   if (now - lastReconnectAttempt > 5000)
+  //   {
+  //     lastReconnectAttempt = now;
+  //     // Attempt to reconnect
+  //     if (reconnect())
+  //     {
+  //       lastReconnectAttempt = 0;
+  //     }
+  //   }
+  // }
+  // else
+  // {
+  //   // Client connected
+  //   client.loop();
+  // }
+
+  // // Update time
+  // if (timeStatus() != timeNotSet)
+  // {
+  //   if (now() != currentTime)
+  //   { //update the display only if time has changed
+  //     currentTime = now();
+  //     digitalClockDisplay();
+  //   }
+  // }
 }
