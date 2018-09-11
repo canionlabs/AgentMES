@@ -5,16 +5,19 @@
 * @Last Modified time: 2018-08-18
 */
 
+#define SLOG Serial.print
+#define SLOGN Serial.println
+
 #include "mes_defines.h"
+#include "TimeUtils.h"
+#include "EventUtils.h"
 
 #include "TypeSelector.h"
+#include "LedManager.h"
 
 #include <Ticker.h>
 #include "Arduino.h"
-#include <ArduinoJson.h>
-#include <NTPtimeESP.h>
 #include <PubSubClient.h>
-#include <TimeLib.h>
 #include <queue>
 
 struct Event
@@ -23,12 +26,17 @@ struct Event
   time_t time;
 };
 
-NTPtime NTPch("0.br.pool.ntp.org");
-strDateTime currentDate;
-time_t currentTime = 0;
+enum BlinkerState
+{
+  BROKER,
+  WIFI,
+  TYPE1,
+  TYPE2
+};
+
 time_t lastReconnectAttempt = 0;
 time_t lastSend = 0;
-time_t sendRate = 2;
+time_t sendRate = 1;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -38,81 +46,129 @@ Ticker mailman;
 std::queue<Event> eventQueue;
 
 mes::TypeSelector typeSelector(INPUT_1, INPUT_2);
+mes::LedManager ledManager(LED_RED, LED_GREEN, LED_BLUE);
 
-time_t getNtpTime()
+bool status = false;
+unsigned long last_up = 0;
+bool long_blink = false;
+
+void blinker(BlinkerState state)
 {
-  Serial.println("Updating date...");
-
-  do
+  if (long_blink)
   {
-    currentDate = NTPch.getNTPtime(-3.0, 0);
-    delay(100);
-    Serial.print("-");
-  } while (!currentDate.valid);
+    if (millis() > last_up)
+    {
+      long_blink = false;
+    }
 
-  if (currentDate.valid)
-  {
-    setSyncInterval(300);
-    Serial.println("Valid date");
-
-    return currentDate.epochTime;
+    return;
   }
 
-  return 0;
-}
+  switch (state)
+  {
+  case WIFI:
+    if (WiFi.status() != WL_CONNECTED)
+    {
+      if (millis() > last_up)
+      {
+        status = !status;
 
-void digitalClockDisplay()
-{
-  // digital clock display of the time
-  Serial.print(hour());
-  Serial.print(":");
-  Serial.print(minute());
-  Serial.print(":");
-  Serial.print(second());
-  Serial.print(" ");
-  Serial.print(day());
-  Serial.print(" ");
-  Serial.print(month());
-  Serial.print(" ");
-  Serial.print(year());
-  Serial.println();
+        last_up = millis() + 100;
+      }
+
+      if (status)
+      {
+        ledManager.red();
+      }
+      else
+      {
+        ledManager.black();
+      }
+    }
+    else
+    {
+      ledManager.black();
+    }
+    break;
+  case BROKER:
+    if (client.connected())
+    {
+      ledManager.white();
+    }
+    else
+    {
+      ledManager.red();
+    }
+    break;
+  case TYPE1:
+    long_blink = true;
+    last_up = millis() + 500;
+    ledManager.blue();
+
+    break;
+  case TYPE2:
+    long_blink = true;
+    last_up = millis() + 500;
+    ledManager.green();
+
+    break;
+  default:
+    ledManager.black();
+  }
 }
 
 void connect()
 {
-  Serial.println("Connecting to Wi-Fi...");
-
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
 
+  bool success = false;
+
+  SLOG("\nConnecting...");
+
+  long start_time = millis();
   while (WiFi.status() != WL_CONNECTED)
   {
-    Serial.print(".");
-    delay(500);
+    delay(50);
+
+    if ((millis() - start_time > 10000) && !success)
+    {
+
+      WiFi.beginSmartConfig();
+      SLOG("\nBegin SmartConfig...");
+
+      while (1)
+      {
+        delay(50);
+
+        if (WiFi.smartConfigDone())
+        {
+          SLOG("\nSmartConfig: Success");
+
+          success = true;
+          break;
+        }
+
+        blinker(BlinkerState::WIFI);
+      }
+    }
+
+    blinker(BlinkerState::WIFI);
   }
 
-  Serial.println("WiFi connected");
-}
+  SLOG("WiFi Connected.");
+  WiFi.printDiag(Serial);
+  SLOG("IP Address: ");
+  SLOGN(WiFi.localIP().toString().c_str());
 
-void hibernate()
-{
-  Serial.println("Max sleep time:");
-  Serial.print((unsigned long)ESP.deepSleepMax());
+  SLOG("Gateway IP: ");
+  SLOGN(WiFi.gatewayIP().toString().c_str());
 
-  Serial.println("bye");
-  ESP.deepSleep(5e6);
-}
+  SLOG("Hostname: ");
+  SLOGN(WiFi.hostname().c_str());
 
-void buildMessage(String *jsonStr, char type, time_t eventTime)
-{
-  const size_t bufferSize = JSON_OBJECT_SIZE(2);
-  DynamicJsonBuffer jsonBuffer(bufferSize);
-
-  JsonObject &root = jsonBuffer.createObject();
-  root["p"] = type;
-  root["t"] = eventTime;
-
-  root.printTo(*jsonStr);
+  SLOG("RSSI: ");
+  SLOG(WiFi.RSSI());
+  SLOGN(" dbm");
 }
 
 void sendEvent()
@@ -138,25 +194,39 @@ void event()
 {
   if ((currentTime - lastSend) > sendRate)
   {
+    int selectedType = typeSelector.currentType();
+
+    if (selectedType == 0)
+    {
+      client.publish("/error", "No type selected");
+      return;
+    }
+
+    switch (selectedType)
+    {
+    case 1:
+      blinker(BlinkerState::TYPE1);
+      break;
+    case 2:
+      blinker(BlinkerState::TYPE2);
+      break;
+    }
+
     lastSend = currentTime;
 
     if (client.connected())
     {
       String msg;
-      buildMessage(&msg, 'A', currentTime);
-
+      buildMessage(&msg, selectedType, lastSend);
       client.publish(MQTT_TOPIC, msg.c_str());
-      Serial.print(".");
     }
     else
     {
       Event event;
-      event.type = 'A';
+      event.type = selectedType;
       event.time = lastSend;
 
       eventQueue.push(event);
-
-      Serial.println("cached event");
     }
   }
 }
@@ -164,13 +234,13 @@ void event()
 boolean reconnect()
 {
 #ifdef MQTT_AUTH
-  if (client.connect(MES_DEVICE_ID, MQTT_USER, MQTT_PASS))
+  if (client.connect(MES_DEVICE_ID, MQTT_USER, MQTT_PASS, "/info", 2, false, "Hello"))
 #else
-  if (client.connect(MES_DEVICE_ID))
+  if (client.connect(MES_DEVICE_ID, "/info", 2, false, "Hello"))
 #endif
   {
     // Once connected, publish an announcement...
-    client.publish(MQTT_TOPIC, "I'm Alive!");
+    client.publish("/info", "I'm Alive!");
   }
 
   return client.connected();
@@ -178,63 +248,47 @@ boolean reconnect()
 
 void setup()
 {
+  ledManager.red();
+
   Serial.begin(115200);
   while (!Serial)
   {
   }
 
-  Serial.println("Booted");
+  SLOGN("Booted");
 
   connect();
   client.setServer(MQTT_BROKER, MQTT_PORT);
 
-  pinMode(INPUT_PIN, INPUT);
+  pinMode(INPUT_PIN, INPUT_PULLUP);
   attachInterrupt(INPUT_PIN, event, RISING);
 
-
-  pinMode(LED_BLUE, OUTPUT);
-  pinMode(LED_GREEN, OUTPUT);
-
-  digitalWrite(LED_GREEN, LOW);
-  digitalWrite(LED_BLUE, LOW);
-
-  // setSyncProvider(getNtpTime);
-  // setSyncInterval(1);
+  setupTime();
 
   mailman.attach(0.5, sendEvent);
 }
 
 void loop()
 {
-  // Serial.print(digitalRead(INPUT_1));
-  // Serial.println(digitalRead(INPUT_2));
+  blinker(BlinkerState::BROKER);
 
-  // if (!client.connected())
-  // {
-  //   time_t now = millis();
-  //   if (now - lastReconnectAttempt > 5000)
-  //   {
-  //     lastReconnectAttempt = now;
-  //     // Attempt to reconnect
-  //     if (reconnect())
-  //     {
-  //       lastReconnectAttempt = 0;
-  //     }
-  //   }
-  // }
-  // else
-  // {
-  //   // Client connected
-  //   client.loop();
-  // }
+  if (!client.connected())
+  {
+    if (currentTime - lastReconnectAttempt > 5)
+    {
+      lastReconnectAttempt = currentTime;
+      // Attempt to reconnect
+      if (reconnect())
+      {
+        lastReconnectAttempt = 0;
+      }
+    }
+  }
+  else
+  {
+    // Client connected
+    client.loop();
+  }
 
-  // // Update time
-  // if (timeStatus() != timeNotSet)
-  // {
-  //   if (now() != currentTime)
-  //   { //update the display only if time has changed
-  //     currentTime = now();
-  //     digitalClockDisplay();
-  //   }
-  // }
+  loopTime();
 }

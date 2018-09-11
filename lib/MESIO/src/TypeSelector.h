@@ -12,5 +12,4 @@ namespace mes {
     int pin1;
     int pin2;
   };
-
 }

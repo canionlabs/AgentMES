@@ -9,8 +9,7 @@
 
 // Device
 
-#define INPUT_PIN D1
-#define TYPE_1 1
+#define INPUT_PIN 5
 
 #define INPUT_1 4
 #define INPUT_2 14
@@ -24,9 +23,9 @@
 
 // #define MQTT_AUTH
 // #define MQTT_BROKER "broker.shiftr.io"
-#define MQTT_BROKER "192.168.88.235"
+#define MQTT_BROKER "autopolar.duckdns.org"
 #define MQTT_PORT 1883
-#define MQTT_TOPIC "/mes"
+#define MQTT_TOPIC "canionlabs/autopolar"
 // #define MQTT_USER "71b18f70"
 // #define MQTT_PASS "5daf5773ea30f228"
 
@@ -34,10 +33,9 @@
 
 #define MES_SERVER "http://mesadmin.canionlabs.io/api/receiver/"
 #define MES_ORGANIZATION "canionlabs001"
-#define MES_DEVICE_TYPE "linkit"
-#define MES_DEVICE_ID "teste-teste"
+#define MES_DEVICE_TYPE "esp8266"
+#define MES_DEVICE_ID "autopolar-gelo"
 
 // Connection
-
-#define WIFI_SSID "Automata"
-#define WIFI_PASS "data.hal.johnny"
+// #define WIFI_SSID "Automata"
+// #define WIFI_PASS "data.hal.johnny"
