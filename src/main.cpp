@@ -190,17 +190,10 @@ void sendEvent()
   }
 }
 
-void event()
-{
-  if ((currentTime - lastSend) > sendRate)
-  {
-    int selectedType = typeSelector.currentType();
+void setup() {
+  delay(500);
+  Serial.begin(115200);
 
-    if (selectedType == 0)
-    {
-      client.publish("/error", "No type selected");
-      return;
-    }
 
     switch (selectedType)
     {
