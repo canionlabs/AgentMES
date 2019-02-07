@@ -21,13 +21,13 @@
 
 // Cloud
 
-// #define MQTT_AUTH
-// #define MQTT_BROKER "broker.shiftr.io"
-#define MQTT_BROKER "autopolar.duckdns.org"
+#define MQTT_AUTH
+#define MQTT_BROKER "broker.shiftr.io"
+// #define MQTT_BROKER "192.168.0.79"
 #define MQTT_PORT 1883
 #define MQTT_TOPIC "canionlabs/autopolar"
-// #define MQTT_USER "71b18f70"
-// #define MQTT_PASS "5daf5773ea30f228"
+#define MQTT_USER "71b18f70"
+#define MQTT_PASS "5daf5773ea30f228"
 
 // MES
 
@@ -37,5 +37,5 @@
 #define MES_DEVICE_ID "autopolar-gelo"
 
 // Connection
-// #define WIFI_SSID "Automata"
-// #define WIFI_PASS "data.hal.johnny"
+#define WIFI_SSID "Automata"
+#define WIFI_PASS "data.hal.johnny"

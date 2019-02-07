@@ -22,16 +22,17 @@
 
 struct Event
 {
-  char type;
-  time_t time;
+	char type;
+	time_t time;
 };
 
 enum BlinkerState
 {
-  BROKER,
-  WIFI,
-  TYPE1,
-  TYPE2
+	BROKER,
+	WIFI,
+	CONFIG,
+	TYPE1,
+	TYPE2
 };
 
 time_t lastReconnectAttempt = 0;
@@ -52,243 +53,251 @@ bool status = false;
 unsigned long last_up = 0;
 bool long_blink = false;
 
+void blink_wifi(int delay)
+{
+	if (WiFi.status() != WL_CONNECTED)
+	{
+		if (millis() > last_up)
+		{
+			status = !status;
+			last_up = millis() + delay;
+		}
+
+		if (status)
+		{
+			ledManager.red();
+		}
+		else
+		{
+			ledManager.black();
+		}
+	}
+	else
+	{
+		ledManager.black();
+	}
+}
+
 void blinker(BlinkerState state)
 {
-  if (long_blink)
-  {
-    if (millis() > last_up)
-    {
-      long_blink = false;
-    }
+	if (long_blink)
+	{
+		if (millis() > last_up)
+		{
+			long_blink = false;
+		}
 
-    return;
-  }
+		return;
+	}
 
-  switch (state)
-  {
-  case WIFI:
-    if (WiFi.status() != WL_CONNECTED)
-    {
-      if (millis() > last_up)
-      {
-        status = !status;
+	switch (state)
+	{
+	case WIFI:
+		blink_wifi(100);
+		break;
+	case CONFIG:
+		blink_wifi(50);
+		break;
+	case BROKER:
+		if (client.connected())
+		{
+			ledManager.white();
+		}
+		else
+		{
+			ledManager.red();
+		}
+		break;
+	case TYPE1:
+		long_blink = true;
+		last_up = millis() + 500;
+		ledManager.blue();
 
-        last_up = millis() + 100;
-      }
+		break;
+	case TYPE2:
+		long_blink = true;
+		last_up = millis() + 500;
+		ledManager.green();
 
-      if (status)
-      {
-        ledManager.red();
-      }
-      else
-      {
-        ledManager.black();
-      }
-    }
-    else
-    {
-      ledManager.black();
-    }
-    break;
-  case BROKER:
-    if (client.connected())
-    {
-      ledManager.white();
-    }
-    else
-    {
-      ledManager.red();
-    }
-    break;
-  case TYPE1:
-    long_blink = true;
-    last_up = millis() + 500;
-    ledManager.blue();
-
-    break;
-  case TYPE2:
-    long_blink = true;
-    last_up = millis() + 500;
-    ledManager.green();
-
-    break;
-  default:
-    ledManager.black();
-  }
+		break;
+	default:
+		ledManager.black();
+	}
 }
 
 void connect()
 {
-  WiFi.mode(WIFI_STA);
+	WiFi.mode(WIFI_STA);
 
-  bool success = false;
+	bool success = false;
 
-  SLOG("\nConnecting...");
+	SLOG("\nConnecting...");
 
-  long start_time = millis();
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(50);
+	long start_time = millis();
+	while (WiFi.status() != WL_CONNECTED)
+	{
+		delay(50);
 
-    if ((millis() - start_time > 10000) && !success)
-    {
+		if ((millis() - start_time > 10000) && !success)
+		{
+			WiFi.beginSmartConfig();
+			SLOG("\nBegin SmartConfig...");
 
-      WiFi.beginSmartConfig();
-      SLOG("\nBegin SmartConfig...");
+			while (1)
+			{
+				delay(50);
 
-      while (1)
-      {
-        delay(50);
+				if (WiFi.smartConfigDone())
+				{
+					SLOG("\nSmartConfig: Success");
 
-        if (WiFi.smartConfigDone())
-        {
-          SLOG("\nSmartConfig: Success");
+					success = true;
+					break;
+				}
 
-          success = true;
-          break;
-        }
+				blinker(BlinkerState::CONFIG);
+			}
+		}
 
-        blinker(BlinkerState::WIFI);
-      }
-    }
+		blinker(BlinkerState::WIFI);
+	}
 
-    blinker(BlinkerState::WIFI);
-  }
+	SLOG("WiFi Connected.");
+	WiFi.printDiag(Serial);
+	SLOG("IP Address: ");
+	SLOGN(WiFi.localIP().toString().c_str());
 
-  SLOG("WiFi Connected.");
-  WiFi.printDiag(Serial);
-  SLOG("IP Address: ");
-  SLOGN(WiFi.localIP().toString().c_str());
+	SLOG("Gateway IP: ");
+	SLOGN(WiFi.gatewayIP().toString().c_str());
 
-  SLOG("Gateway IP: ");
-  SLOGN(WiFi.gatewayIP().toString().c_str());
+	SLOG("Hostname: ");
+	SLOGN(WiFi.hostname().c_str());
 
-  SLOG("Hostname: ");
-  SLOGN(WiFi.hostname().c_str());
-
-  SLOG("RSSI: ");
-  SLOG(WiFi.RSSI());
-  SLOGN(" dbm");
+	SLOG("RSSI: ");
+	SLOG(WiFi.RSSI());
+	SLOGN(" dbm");
 }
 
 void sendEvent()
 {
-  if (!eventQueue.empty())
-  {
-    Event event = eventQueue.front();
+	if (!eventQueue.empty())
+	{
+		Event event = eventQueue.front();
 
-    String msg;
-    buildMessage(&msg, event.type, event.time);
+		String msg;
+		buildMessage(&msg, event.type, event.time);
 
-    if (client.connected())
-    {
-      client.publish(MQTT_TOPIC, msg.c_str());
-      Serial.print("_");
+		if (client.connected())
+		{
+			client.publish(MQTT_TOPIC, msg.c_str());
+			Serial.print("_");
 
-      eventQueue.pop();
-    }
-  }
+			eventQueue.pop();
+		}
+	}
 }
 
 void event()
 {
-  if ((currentTime - lastSend) > sendRate)
-  {
-    int selectedType = typeSelector.currentType();
+	if ((currentTime - lastSend) > sendRate)
+	{
+		int selectedType = typeSelector.currentType();
 
-    if (selectedType == 0)
-    {
-      client.publish("/error", "No type selected");
-      return;
-    }
+		if (selectedType == 0)
+		{
+			client.publish("/error", "No type selected");
+			return;
+		}
 
-    switch (selectedType)
-    {
-    case 1:
-      blinker(BlinkerState::TYPE1);
-      break;
-    case 2:
-      blinker(BlinkerState::TYPE2);
-      break;
-    }
+		switch (selectedType)
+		{
+		case 1:
+			blinker(BlinkerState::TYPE1);
+			break;
+		case 2:
+			blinker(BlinkerState::TYPE2);
+			break;
+		}
 
-    lastSend = currentTime;
+		lastSend = currentTime;
 
-    if (client.connected())
-    {
-      String msg;
-      buildMessage(&msg, selectedType, lastSend);
-      client.publish(MQTT_TOPIC, msg.c_str());
-    }
-    else
-    {
-      Event event;
-      event.type = selectedType;
-      event.time = lastSend;
+		if (client.connected())
+		{
+			String msg;
+			buildMessage(&msg, selectedType, lastSend);
+			client.publish(MQTT_TOPIC, msg.c_str());
+		}
+		else
+		{
+			Event event;
+			event.type = selectedType;
+			event.time = lastSend;
 
-      eventQueue.push(event);
-    }
-  }
+			eventQueue.push(event);
+		}
+	}
 }
 
 boolean reconnect()
 {
-#ifdef MQTT_AUTH
-  if (client.connect(MES_DEVICE_ID, MQTT_USER, MQTT_PASS, "/info", 2, false, "Hello"))
-#else
-  if (client.connect(MES_DEVICE_ID, "/info", 2, false, "Hello"))
-#endif
-  {
-    // Once connected, publish an announcement...
-    client.publish("/info", "I'm Alive!");
-  }
+	SLOGN("Reconnecting");
 
-  return client.connected();
+#ifdef MQTT_AUTH
+	if (client.connect(MES_DEVICE_ID, MQTT_USER, MQTT_PASS, "/info", 2, false, "Hello"))
+#else
+	if (client.connect(MES_DEVICE_ID, "/info", 2, false, "Hello"))
+#endif
+	{
+		// Once connected, publish an announcement...
+		client.publish("/info", "I'm Alive!");
+	}
+
+	return client.connected();
 }
 
 void setup()
 {
-  ledManager.red();
+	ledManager.red();
 
-  Serial.begin(115200);
-  while (!Serial)
-  {
-  }
+	Serial.begin(115200);
+	while (!Serial)
+	{
+	}
 
-  SLOGN("Booted");
+	SLOGN("Booted");
 
-  connect();
-  client.setServer(MQTT_BROKER, MQTT_PORT);
+	connect();
+	client.setServer(MQTT_BROKER, MQTT_PORT);
 
-  pinMode(INPUT_PIN, INPUT_PULLUP);
-  attachInterrupt(INPUT_PIN, event, RISING);
+	pinMode(INPUT_PIN, INPUT_PULLUP);
+	attachInterrupt(INPUT_PIN, event, RISING);
 
-  setupTime();
+	setupTime();
 
-  mailman.attach(0.5, sendEvent);
+	mailman.attach(0.5, sendEvent);
 }
 
 void loop()
 {
-  blinker(BlinkerState::BROKER);
+	blinker(BlinkerState::BROKER);
 
-  if (!client.connected())
-  {
-    if (currentTime - lastReconnectAttempt > 5)
-    {
-      lastReconnectAttempt = currentTime;
-      // Attempt to reconnect
-      if (reconnect())
-      {
-        lastReconnectAttempt = 0;
-      }
-    }
-  }
-  else
-  {
-    // Client connected
-    client.loop();
-  }
+	if (!client.connected())
+	{
+		if (currentTime - lastReconnectAttempt > 5)
+		{
+			lastReconnectAttempt = currentTime;
+			// Attempt to reconnect
+			if (reconnect())
+			{
+				lastReconnectAttempt = 0;
+			}
+		}
+	}
+	else
+	{
+		// Client connected
+		client.loop();
+	}
 
-  loopTime();
+	loopTime();
 }

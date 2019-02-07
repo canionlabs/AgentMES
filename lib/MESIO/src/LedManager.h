@@ -11,6 +11,7 @@ namespace mes {
     void black();
     void blue();
     void red();
+    void cyan();
     void green();
 
   private:
