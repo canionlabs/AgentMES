@@ -8,23 +8,19 @@
 #define SLOG Serial.print
 #define SLOGN Serial.println
 
+#define READ_RATE 1000
+#define RECONNECT_RATE 5000
+
 #include "mes_defines.h"
-#include "TimeUtils.h"
-#include "EventUtils.h"
 
 #include "TypeSelector.h"
 #include "LedManager.h"
 
-#include <Ticker.h>
-#include "Arduino.h"
-#include <PubSubClient.h>
-#include <queue>
+#include <ESP8266WiFi.h>
 
-struct Event
-{
-	char type;
-	time_t time;
-};
+#include "Arduino.h"
+#include <ArduinoJson.h>
+#include <PubSubClient.h>
 
 enum BlinkerState
 {
@@ -35,16 +31,16 @@ enum BlinkerState
 	TYPE2
 };
 
-time_t lastReconnectAttempt = 0;
-time_t lastSend = 0;
-time_t sendRate = 1;
+unsigned long nextReconnectAttempt = 0;
+unsigned long nextSend = 0;
+
+int selectedType = 0;
+volatile byte packageCount = 0;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-Ticker mailman;
-
-std::queue<Event> eventQueue;
+// volatile std::queue<int> eventQueue;
 
 mes::TypeSelector typeSelector(INPUT_1, INPUT_2);
 mes::LedManager ledManager(LED_RED, LED_GREEN, LED_BLUE);
@@ -127,6 +123,10 @@ void blinker(BlinkerState state)
 
 void connect()
 {
+#if defined(WIFI_SSID) && defined(WIFI_PASS)
+	WiFi.begin(WIFI_SSID, WIFI_PASS);
+#endif
+
 	WiFi.mode(WIFI_STA);
 
 	bool success = false;
@@ -178,63 +178,59 @@ void connect()
 	SLOGN(" dbm");
 }
 
+void buildMessage(String *jsonStr, char type)
+{
+	const size_t bufferSize = JSON_OBJECT_SIZE(3);
+	DynamicJsonBuffer jsonBuffer(bufferSize);
+
+	JsonObject &root = jsonBuffer.createObject();
+	root["p"] = type;
+	root["i"] = MES_DEVICE_ID;
+
+	root.printTo(*jsonStr);
+}
+
 void sendEvent()
 {
-	if (!eventQueue.empty())
+	if (packageCount > 0 && client.connected() == true)
 	{
-		Event event = eventQueue.front();
-
 		String msg;
-		buildMessage(&msg, event.type, event.time);
+		buildMessage(&msg, selectedType);
 
-		if (client.connected())
-		{
-			client.publish(MQTT_TOPIC, msg.c_str());
-			Serial.print("_");
+		client.publish(MQTT_TOPIC, msg.c_str());
+		Serial.print("_");
 
-			eventQueue.pop();
-		}
+		packageCount--;
 	}
 }
 
 void event()
 {
-	if ((currentTime - lastSend) > sendRate)
+	if (nextSend < millis())
 	{
-		int selectedType = typeSelector.currentType();
+		// int selectedType = typeSelector.currentType();
 
-		if (selectedType == 0)
-		{
-			client.publish("/error", "No type selected");
-			return;
-		}
+		// if (selectedType == 0)
+		// {
+		// 	client.publish("/error", "No type selected");
+		// 	return;
+		// }
 
-		switch (selectedType)
-		{
-		case 1:
-			blinker(BlinkerState::TYPE1);
-			break;
-		case 2:
-			blinker(BlinkerState::TYPE2);
-			break;
-		}
+		// switch (selectedType)
+		// {
+		// case 1:
+		// 	blinker(BlinkerState::TYPE1);
+		// 	break;
+		// case 2:
+		// 	blinker(BlinkerState::TYPE2);
+		// 	break;
+		// }
 
-		lastSend = currentTime;
+		// eventQueue.push(selectedType);
 
-		if (client.connected())
-		{
-			String msg;
-			buildMessage(&msg, selectedType, lastSend);
-			client.publish(MQTT_TOPIC, msg.c_str());
-		}
-		else
-		{
-			Event event;
-			event.type = selectedType;
-			event.time = lastSend;
+		packageCount++;
 
-			eventQueue.push(event);
-		}
+		nextSend = millis() + READ_RATE;
 	}
 }
 
@@ -271,33 +267,21 @@ void setup()
 
 	pinMode(INPUT_PIN, INPUT_PULLUP);
 	attachInterrupt(INPUT_PIN, event, RISING);
-
-	setupTime();
-
-	mailman.attach(0.5, sendEvent);
 }
 
 void loop()
 {
 	blinker(BlinkerState::BROKER);
 
-	if (!client.connected())
+	if (client.connected() == false)
 	{
-		if (currentTime - lastReconnectAttempt > 5)
+		if (nextReconnectAttempt < millis())
 		{
-			lastReconnectAttempt = currentTime;
-			// Attempt to reconnect
-			if (reconnect())
-			{
-				lastReconnectAttempt = 0;
-			}
+			nextReconnectAttempt = millis() + RECONNECT_RATE;
+			reconnect();
 		}
 	}
-	else
-	{
-		// Client connected
-		client.loop();
-	}
 
-	loopTime();
+	client.loop();
+	sendEvent();
 }
