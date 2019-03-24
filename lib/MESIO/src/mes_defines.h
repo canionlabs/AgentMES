@@ -9,7 +9,7 @@
 
 // Device
 
-#define INPUT_PIN 5
+#define INPUT_PIN 15
 
 #define INPUT_1 4
 #define INPUT_2 14

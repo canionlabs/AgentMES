@@ -8,7 +8,7 @@
 #define SLOG Serial.print
 #define SLOGN Serial.println
 
-#define READ_RATE 1000
+#define READ_RATE 50 // 1000 TODO
 #define RECONNECT_RATE 5000
 
 #include "mes_defines.h"
@@ -206,6 +206,8 @@ void sendEvent()
 
 void event()
 {
+	packageCount++;
+
 	if (nextSend < millis())
 	{
 		// int selectedType = typeSelector.currentType();
@@ -228,7 +230,7 @@ void event()
 
 		// eventQueue.push(selectedType);
 
-		packageCount++;
+		
 
 		nextSend = millis() + READ_RATE;
 	}
@@ -266,11 +268,13 @@ void setup()
 	client.setServer(MQTT_BROKER, MQTT_PORT);
 
 	pinMode(INPUT_PIN, INPUT_PULLUP);
-	attachInterrupt(INPUT_PIN, event, RISING);
+	attachInterrupt(INPUT_PIN, event, CHANGE);
 }
 
 void loop()
 {
+	Serial.println(packageCount);
+
 	blinker(BlinkerState::BROKER);
 
 	if (client.connected() == false)
@@ -284,4 +288,6 @@ void loop()
 
 	client.loop();
 	sendEvent();
+
+	delay(10);
 }
