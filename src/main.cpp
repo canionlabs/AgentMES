@@ -21,6 +21,8 @@
 #include "Arduino.h"
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 
 enum BlinkerState
 {
@@ -40,7 +42,7 @@ volatile byte packageCount = 0;
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-// volatile std::queue<int> eventQueue;
+LiquidCrystal_I2C lcd(0x3F, 16, 2);
 
 mes::TypeSelector typeSelector(INPUT_1, INPUT_2);
 mes::LedManager ledManager(LED_RED, LED_GREEN, LED_BLUE);
@@ -48,6 +50,17 @@ mes::LedManager ledManager(LED_RED, LED_GREEN, LED_BLUE);
 bool status = false;
 unsigned long last_up = 0;
 bool long_blink = false;
+
+void showMsg(int col, int row, const char *msg)
+{
+	lcd.setCursor(col, row);
+	lcd.print(msg);
+}
+
+void clearDisplay()
+{
+	lcd.clear();
+}
 
 void blink_wifi(int delay)
 {
@@ -131,6 +144,8 @@ void connect()
 
 	bool success = false;
 
+	clearDisplay();
+	showMsg(0, 0, "Connecting...");
 	SLOG("\nConnecting...");
 
 	long start_time = millis();
@@ -141,6 +156,8 @@ void connect()
 		if ((millis() - start_time > 10000) && !success)
 		{
 			WiFi.beginSmartConfig();
+			clearDisplay();
+			showMsg(0, 0, "Begin SmartConfig...");
 			SLOG("\nBegin SmartConfig...");
 
 			while (1)
@@ -150,6 +167,7 @@ void connect()
 				if (WiFi.smartConfigDone())
 				{
 					SLOG("\nSmartConfig: Success");
+					showMsg(0, 1, "SmartConfig: Success");
 
 					success = true;
 					break;
@@ -161,6 +179,9 @@ void connect()
 
 		blinker(BlinkerState::WIFI);
 	}
+
+	clearDisplay();
+	showMsg(0, 0, "WiFi Connected");
 
 	SLOG("WiFi Connected.");
 	WiFi.printDiag(Serial);
@@ -201,6 +222,9 @@ void sendEvent()
 		Serial.print("_");
 
 		packageCount--;
+
+		showMsg(0, 1, "A enviar:");
+		lcd.print(packageCount, DEC);
 	}
 }
 
@@ -230,8 +254,6 @@ void event()
 
 		// eventQueue.push(selectedType);
 
-		
-
 		nextSend = millis() + READ_RATE;
 	}
 }
@@ -241,13 +263,13 @@ boolean reconnect()
 	SLOGN("Reconnecting");
 
 #ifdef MQTT_AUTH
-	if (client.connect(MES_DEVICE_ID, MQTT_USER, MQTT_PASS, "/info", 2, false, "Hello"))
+	if (client.connect(MES_DEVICE_ID, MQTT_USER, MQTT_PASS, "/will", 2, false, MES_DEVICE_ID))
 #else
-	if (client.connect(MES_DEVICE_ID, "/info", 2, false, "Hello"))
+	if (client.connect(MES_DEVICE_ID, "/will", 2, false, MES_DEVICE_ID))
 #endif
 	{
 		// Once connected, publish an announcement...
-		client.publish("/info", "I'm Alive!");
+		client.publish("/status", MES_DEVICE_ID);
 	}
 
 	return client.connected();
@@ -255,14 +277,15 @@ boolean reconnect()
 
 void setup()
 {
-	ledManager.red();
-
 	Serial.begin(115200);
 	while (!Serial)
 	{
 	}
 
-	SLOGN("Booted");
+	lcd.init();
+	lcd.backlight();
+
+	showMsg(0, 0, "Booted");
 
 	connect();
 	client.setServer(MQTT_BROKER, MQTT_PORT);
@@ -271,11 +294,25 @@ void setup()
 	attachInterrupt(INPUT_PIN, event, CHANGE);
 }
 
+bool connStatus = false;
+
 void loop()
 {
 	Serial.println(packageCount);
 
 	blinker(BlinkerState::BROKER);
+
+	if (client.connected() != connStatus)
+	{
+		connStatus = client.connected();
+		
+		clearDisplay();
+		if (connStatus) {
+			showMsg(0, 1, "Connected");
+		} else {
+			showMsg(0, 1, "Reconnecting");
+		}
+	}
 
 	if (client.connected() == false)
 	{
