@@ -5,203 +5,159 @@
 * @Last Modified time: 2018-08-18
 */
 
-#define SLOG Serial.print
-#define SLOGN Serial.println
-
-#define READ_RATE 50 // 1000 TODO
+#define READ_RATE 2000
 #define RECONNECT_RATE 5000
+#define CONNECT_WAIT 30 * 1000 // 30 sec
 
 #include "mes_defines.h"
 
-#include "TypeSelector.h"
-#include "LedManager.h"
-
-#include <ESP8266WiFi.h>
+// #include "TypeSelector.h"
+// #include "LedManager.h"
 
 #include "Arduino.h"
+#include <ESP8266WiFi.h>
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
 #include <Wire.h>
-#include <LiquidCrystal_I2C.h>
+#include <Adafruit_SSD1306.h>
 
-enum BlinkerState
+enum CurrState
 {
-	BROKER,
-	WIFI,
-	CONFIG,
-	TYPE1,
-	TYPE2
+	INIT,
+	WIFI_DISCONNECTED,
+	WIFI_CONNECTED,
+	BROKER_DISCONNECTED,
+	BROKER_CONNECTED,
+	SMART_CONFIG,
 };
+
+CurrState state = CurrState::INIT;
 
 unsigned long nextReconnectAttempt = 0;
 unsigned long nextSend = 0;
 
-int selectedType = 0;
+char selectedType = 'A';
 volatile byte packageCount = 0;
 
 WiFiClient espClient;
-PubSubClient client(espClient);
+PubSubClient client(espClient, MQTT_BROKER, MQTT_PORT);
 
-LiquidCrystal_I2C lcd(0x3F, 16, 2);
+Adafruit_SSD1306 display;
 
-mes::TypeSelector typeSelector(INPUT_1, INPUT_2);
-mes::LedManager ledManager(LED_RED, LED_GREEN, LED_BLUE);
+// mes::TypeSelector typeSelector(INPUT_1, INPUT_2);
+// mes::LedManager ledManager(LED_RED, LED_GREEN, LED_BLUE);
 
 bool status = false;
 unsigned long last_up = 0;
 bool long_blink = false;
 
-void showMsg(int col, int row, const char *msg)
+void write(int x, int y, int size, String text)
 {
-	lcd.setCursor(col, row);
-	lcd.print(msg);
+	display.setCursor(x, y);
+	display.setTextSize(size);
+	display.setTextColor(WHITE);
+	display.print(text);
 }
 
-void clearDisplay()
+void updateView() // int current, int total, float value, float avg, String addr, int percent
 {
-	lcd.clear();
-}
-
-void blink_wifi(int delay)
-{
-	if (WiFi.status() != WL_CONNECTED)
-	{
-		if (millis() > last_up)
-		{
-			status = !status;
-			last_up = millis() + delay;
-		}
-
-		if (status)
-		{
-			ledManager.red();
-		}
-		else
-		{
-			ledManager.black();
-		}
-	}
-	else
-	{
-		ledManager.black();
-	}
-}
-
-void blinker(BlinkerState state)
-{
-	if (long_blink)
-	{
-		if (millis() > last_up)
-		{
-			long_blink = false;
-		}
-
-		return;
-	}
+	display.clearDisplay();
 
 	switch (state)
 	{
-	case WIFI:
-		blink_wifi(100);
+	case CurrState::INIT:
+		write(2, 0, 1, ": INICIANDO...");
 		break;
-	case CONFIG:
-		blink_wifi(50);
+	case CurrState::WIFI_DISCONNECTED:
+		write(2, 0, 1, ": WIFI DESCONECTADO");
 		break;
-	case BROKER:
-		if (client.connected())
-		{
-			ledManager.white();
-		}
-		else
-		{
-			ledManager.red();
-		}
+	case CurrState::WIFI_CONNECTED:
+		write(2, 0, 1, ": WIFI CONECTADO");
 		break;
-	case TYPE1:
-		long_blink = true;
-		last_up = millis() + 500;
-		ledManager.blue();
-
+	case CurrState::SMART_CONFIG:
+		write(2, 0, 1, ": SMART CONFIG");
 		break;
-	case TYPE2:
-		long_blink = true;
-		last_up = millis() + 500;
-		ledManager.green();
-
+	case CurrState::BROKER_DISCONNECTED:
+		write(2, 0, 1, ": SERVIDOR DESCONECTADO");
+		break;
+	case CurrState::BROKER_CONNECTED:
+		write(2, 0, 1, ": SERVIDOR CONECTADO");
 		break;
 	default:
-		ledManager.black();
+		write(2, 0, 1, "...");
+		break;
 	}
+
+	write(0, 10, 3, "T:" + String(selectedType));
+
+	// write(0, 0, 1, "hello world");
+	// write(0, 10, 1, addr);
+	// write(60, 0, 1, "AVG: " + String(avg));
+	// write(38, 9, 3, String(value));
+
+	// display.drawLine(percent, display.height() - 1, display.width() - 1, display.height() - 1, WHITE);
+
+	display.display();
 }
 
-void connect()
+void wifiConnect()
 {
+	if (WiFi.status() == WL_CONNECTED)
+	{
+		return;
+	}
+
 #if defined(WIFI_SSID) && defined(WIFI_PASS)
 	WiFi.begin(WIFI_SSID, WIFI_PASS);
 #endif
 
 	WiFi.mode(WIFI_STA);
 
-	bool success = false;
+	state = CurrState::WIFI_DISCONNECTED;
+	updateView();
 
-	clearDisplay();
-	showMsg(0, 0, "Connecting...");
-	SLOG("\nConnecting...");
+	unsigned long wait_time = millis() + CONNECT_WAIT;
 
-	long start_time = millis();
 	while (WiFi.status() != WL_CONNECTED)
 	{
 		delay(50);
 
-		if ((millis() - start_time > 10000) && !success)
+		// wait 30 sec to connect to wifi
+		if (wait_time < millis())
 		{
+			// enter SmartConfig mode
 			WiFi.beginSmartConfig();
-			clearDisplay();
-			showMsg(0, 0, "Begin SmartConfig...");
-			SLOG("\nBegin SmartConfig...");
+			state = CurrState::SMART_CONFIG;
+			updateView();
 
-			while (1)
+			wait_time = millis() + CONNECT_WAIT;
+
+			while (true)
 			{
 				delay(50);
 
 				if (WiFi.smartConfigDone())
 				{
-					SLOG("\nSmartConfig: Success");
-					showMsg(0, 1, "SmartConfig: Success");
-
-					success = true;
 					break;
 				}
 
-				blinker(BlinkerState::CONFIG);
+				// wait 30 sec on smart config
+				if (wait_time < millis())
+				{
+					// restart if smart config fails
+					ESP.restart();
+				}
 			}
 		}
-
-		blinker(BlinkerState::WIFI);
 	}
 
-	clearDisplay();
-	showMsg(0, 0, "WiFi Connected");
-
-	SLOG("WiFi Connected.");
-	WiFi.printDiag(Serial);
-	SLOG("IP Address: ");
-	SLOGN(WiFi.localIP().toString().c_str());
-
-	SLOG("Gateway IP: ");
-	SLOGN(WiFi.gatewayIP().toString().c_str());
-
-	SLOG("Hostname: ");
-	SLOGN(WiFi.hostname().c_str());
-
-	SLOG("RSSI: ");
-	SLOG(WiFi.RSSI());
-	SLOGN(" dbm");
+	state = CurrState::WIFI_CONNECTED;
+	updateView();
 }
 
 void buildMessage(String *jsonStr, char type)
 {
-	const size_t bufferSize = JSON_OBJECT_SIZE(3);
+	const size_t bufferSize = JSON_OBJECT_SIZE(2);
 	DynamicJsonBuffer jsonBuffer(bufferSize);
 
 	JsonObject &root = jsonBuffer.createObject();
@@ -211,6 +167,33 @@ void buildMessage(String *jsonStr, char type)
 	root.printTo(*jsonStr);
 }
 
+void cfgHandler(const MQTT::Publish& pub)
+{
+	if (strcmp(pub.topic().c_str(), MES_CFG_TOPIC) == 0)
+	{
+		selectedType = (char) pub.payload()[0];
+
+		client.publish(MQTT::Publish(MES_CFG_CONFIRM_TOPIC, pub.payload(), pub.payload_len()).set_qos(2));
+	}
+}
+
+// void cfgHandler(char *topic, byte *payload, unsigned int length)
+// {
+// 	if (strcmp(topic, MES_CFG_TOPIC) == 0)
+// 	{
+// 		selectedType = (char)payload[0];
+
+// 		// Allocate the correct amount of memory for the payload copy
+// 		byte *p = (byte *)malloc(length);
+// 		// Copy the payload to the new buffer
+// 		memcpy(p, payload, length);
+// 		client.publish(MES_DATA_TOPIC, p, length);
+
+// 		// Free the memory
+// 		free(p);
+// 	}
+// }
+
 void sendEvent()
 {
 	if (packageCount > 0 && client.connected() == true)
@@ -218,61 +201,47 @@ void sendEvent()
 		String msg;
 		buildMessage(&msg, selectedType);
 
-		client.publish(MQTT_TOPIC, msg.c_str());
-		Serial.print("_");
+		client.publish(MQTT::Publish(MES_DATA_TOPIC, msg.c_str()).set_qos(2));
 
 		packageCount--;
-
-		showMsg(0, 1, "A enviar:");
-		lcd.print(packageCount, DEC);
 	}
 }
 
 void event()
 {
-	packageCount++;
-
 	if (nextSend < millis())
 	{
-		// int selectedType = typeSelector.currentType();
-
-		// if (selectedType == 0)
-		// {
-		// 	client.publish("/error", "No type selected");
-		// 	return;
-		// }
-
-		// switch (selectedType)
-		// {
-		// case 1:
-		// 	blinker(BlinkerState::TYPE1);
-		// 	break;
-		// case 2:
-		// 	blinker(BlinkerState::TYPE2);
-		// 	break;
-		// }
-
-		// eventQueue.push(selectedType);
-
+		packageCount++;
 		nextSend = millis() + READ_RATE;
 	}
 }
 
-boolean reconnect()
+void brokerConnect()
 {
-	SLOGN("Reconnecting");
-
-#ifdef MQTT_AUTH
-	if (client.connect(MES_DEVICE_ID, MQTT_USER, MQTT_PASS, "/will", 2, false, MES_DEVICE_ID))
-#else
-	if (client.connect(MES_DEVICE_ID, "/will", 2, false, MES_DEVICE_ID))
-#endif
+	if (client.connected() || nextReconnectAttempt > millis())
 	{
-		// Once connected, publish an announcement...
-		client.publish("/status", MES_DEVICE_ID);
+		return;
 	}
 
-	return client.connected();
+	state = CurrState::BROKER_DISCONNECTED;
+	updateView();
+
+#if defined(MQTT_USER) && defined(MQTT_PASS)
+	if (client.connect(MQTT::Connect(MES_DEVICE_ID).set_will(MES_WILL_TOPIC, MES_DEVICE_ID, 2, false).set_auth(MQTT_USER, MQTT_PASS)))
+#else
+	if (client.connect(MQTT::Connect(MES_DEVICE_ID).set_will(MES_WILL_TOPIC, MES_DEVICE_ID, 2, false)))
+#endif
+	{
+		state = CurrState::BROKER_CONNECTED;
+		updateView();
+
+		// Once connected, publish an announcement...
+		client.publish(MES_STATE_TOPIC, MES_DEVICE_ID);
+
+		client.subscribe(MES_CFG_TOPIC);
+	}
+
+	nextReconnectAttempt = millis() + RECONNECT_RATE;
 }
 
 void setup()
@@ -282,49 +251,29 @@ void setup()
 	{
 	}
 
-	lcd.init();
-	lcd.backlight();
+	display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
 
-	showMsg(0, 0, "Booted");
+	state = CurrState::INIT;
+	updateView();
 
-	connect();
-	client.setServer(MQTT_BROKER, MQTT_PORT);
+	client.set_callback(cfgHandler);
 
 	pinMode(INPUT_PIN, INPUT_PULLUP);
 	attachInterrupt(INPUT_PIN, event, CHANGE);
-}
 
-bool connStatus = false;
+	Serial.println("ready");
+}
 
 void loop()
 {
-	Serial.println(packageCount);
-
-	blinker(BlinkerState::BROKER);
-
-	if (client.connected() != connStatus)
-	{
-		connStatus = client.connected();
-		
-		clearDisplay();
-		if (connStatus) {
-			showMsg(0, 1, "Connected");
-		} else {
-			showMsg(0, 1, "Reconnecting");
-		}
-	}
-
-	if (client.connected() == false)
-	{
-		if (nextReconnectAttempt < millis())
-		{
-			nextReconnectAttempt = millis() + RECONNECT_RATE;
-			reconnect();
-		}
-	}
+	wifiConnect();
+	brokerConnect();
 
 	client.loop();
 	sendEvent();
 
+	updateView();
+
+	// Little Delay
 	delay(10);
 }
