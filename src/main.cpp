@@ -158,13 +158,11 @@ void wifiConnect()
 void buildMessage(String *jsonStr, char type)
 {
 	const size_t bufferSize = JSON_OBJECT_SIZE(2);
-	DynamicJsonBuffer jsonBuffer(bufferSize);
+	DynamicJsonDocument jsonBuffer(bufferSize);
+	jsonBuffer["p"] = type;
+	jsonBuffer["i"] = MES_DEVICE_ID;
 
-	JsonObject &root = jsonBuffer.createObject();
-	root["p"] = type;
-	root["i"] = MES_DEVICE_ID;
-
-	root.printTo(*jsonStr);
+	serializeJson(jsonBuffer, *jsonStr);
 }
 
 void cfgHandler(const MQTT::Publish& pub)
