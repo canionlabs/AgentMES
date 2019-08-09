@@ -151,6 +151,11 @@ void wifiConnect()
 		}
 	}
 
+	if (WiFi.status() == WL_CONNECTED)
+	{
+		Serial.printf("Connected, mac address: %s\n", WiFi.macAddress().c_str());
+	}
+
 	state = CurrState::WIFI_CONNECTED;
 	updateView();
 }
@@ -165,11 +170,11 @@ void buildMessage(String *jsonStr, char type)
 	serializeJson(jsonBuffer, *jsonStr);
 }
 
-void cfgHandler(const MQTT::Publish& pub)
+void cfgHandler(const MQTT::Publish &pub)
 {
 	if (strcmp(pub.topic().c_str(), MES_CFG_TOPIC) == 0)
 	{
-		selectedType = (char) pub.payload()[0];
+		selectedType = (char)pub.payload()[0];
 
 		client.publish(MQTT::Publish(MES_CFG_CONFIRM_TOPIC, pub.payload(), pub.payload_len()).set_qos(2));
 	}

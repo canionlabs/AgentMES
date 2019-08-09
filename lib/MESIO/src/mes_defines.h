@@ -43,5 +43,5 @@
 #define MES_DEVICE_ID "kalfix"
 
 // Connection
-#define WIFI_SSID "Venal Ninja Labs"
-#define WIFI_PASS "Venal@2016"
+#define WIFI_SSID "Automata 2G"
+#define WIFI_PASS "data.hal.johnny"
