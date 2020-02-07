@@ -15,7 +15,12 @@
 // #include "LedManager.h"
 
 #include "Arduino.h"
+
+// AutoConnect
 #include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <AutoConnect.h>
+
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
 #include <Wire.h>
@@ -42,6 +47,10 @@ volatile byte packageCount = 0;
 WiFiClient espClient;
 PubSubClient client(espClient, MQTT_BROKER, MQTT_PORT);
 
+ESP8266WebServer Server;
+AutoConnect Portal(Server);
+AutoConnectConfig Config;
+
 Adafruit_SSD1306 display;
 
 // mes::TypeSelector typeSelector(INPUT_1, INPUT_2);
@@ -50,6 +59,12 @@ Adafruit_SSD1306 display;
 bool status = false;
 unsigned long last_up = 0;
 bool long_blink = false;
+
+void rootPage()
+{
+	char content[] = "MES, CanionLabs";
+	Server.send(200, "text/plain", content);
+}
 
 void write(int x, int y, int size, String text)
 {
@@ -100,65 +115,65 @@ void updateView() // int current, int total, float value, float avg, String addr
 	display.display();
 }
 
-void wifiConnect()
-{
-	if (WiFi.status() == WL_CONNECTED)
-	{
-		return;
-	}
+// void wifiConnect()
+// {
+// 	if (WiFi.status() == WL_CONNECTED)
+// 	{
+// 		return;
+// 	}
 
-#if defined(WIFI_SSID) && defined(WIFI_PASS)
-	WiFi.begin(WIFI_SSID, WIFI_PASS);
-#endif
+// #if defined(WIFI_SSID) && defined(WIFI_PASS)
+// 	WiFi.begin(WIFI_SSID, WIFI_PASS);
+// #endif
 
-	WiFi.mode(WIFI_STA);
+// 	WiFi.mode(WIFI_STA);
 
-	state = CurrState::WIFI_DISCONNECTED;
-	updateView();
+// 	state = CurrState::WIFI_DISCONNECTED;
+// 	updateView();
 
-	unsigned long wait_time = millis() + CONNECT_WAIT;
+// 	unsigned long wait_time = millis() + CONNECT_WAIT;
 
-	while (WiFi.status() != WL_CONNECTED)
-	{
-		delay(50);
+// 	while (WiFi.status() != WL_CONNECTED)
+// 	{
+// 		delay(50);
 
-		// wait 30 sec to connect to wifi
-		if (wait_time < millis())
-		{
-			// enter SmartConfig mode
-			WiFi.beginSmartConfig();
-			state = CurrState::SMART_CONFIG;
-			updateView();
+// 		// wait 30 sec to connect to wifi
+// 		if (wait_time < millis())
+// 		{
+// 			// enter SmartConfig mode
+// 			WiFi.beginSmartConfig();
+// 			state = CurrState::SMART_CONFIG;
+// 			updateView();
 
-			wait_time = millis() + CONNECT_WAIT;
+// 			wait_time = millis() + CONNECT_WAIT;
 
-			while (true)
-			{
-				delay(50);
+// 			while (true)
+// 			{
+// 				delay(50);
 
-				if (WiFi.smartConfigDone())
-				{
-					break;
-				}
+// 				if (WiFi.smartConfigDone())
+// 				{
+// 					break;
+// 				}
 
-				// wait 30 sec on smart config
-				if (wait_time < millis())
-				{
-					// restart if smart config fails
-					ESP.restart();
-				}
-			}
-		}
-	}
+// 				// wait 30 sec on smart config
+// 				if (wait_time < millis())
+// 				{
+// 					// restart if smart config fails
+// 					ESP.restart();
+// 				}
+// 			}
+// 		}
+// 	}
 
-	if (WiFi.status() == WL_CONNECTED)
-	{
-		Serial.printf("Connected, mac address: %s\n", WiFi.macAddress().c_str());
-	}
+// 	if (WiFi.status() == WL_CONNECTED)
+// 	{
+// 		Serial.printf("Connected, mac address: %s\n", WiFi.macAddress().c_str());
+// 	}
 
-	state = CurrState::WIFI_CONNECTED;
-	updateView();
-}
+// 	state = CurrState::WIFI_CONNECTED;
+// 	updateView();
+// }
 
 void buildMessage(String *jsonStr, char type)
 {
@@ -204,9 +219,11 @@ void sendEvent()
 		String msg;
 		buildMessage(&msg, selectedType);
 
-		client.publish(MQTT::Publish(MES_DATA_TOPIC, msg.c_str()).set_qos(2));
+		client.publish(MQTT::Publish(MES_DATA_TOPIC, msg.c_str()).set_qos(MQTT_QOS));
 
 		packageCount--;
+
+		Serial.println("send pkg");
 	}
 }
 
@@ -216,6 +233,7 @@ void event()
 	{
 		packageCount++;
 		nextSend = millis() + READ_RATE;
+		Serial.println("new pkg");
 	}
 }
 
@@ -264,12 +282,29 @@ void setup()
 	pinMode(INPUT_PIN, INPUT_PULLUP);
 	attachInterrupt(INPUT_PIN, event, CHANGE);
 
+	Config.title = PORTAL_TITLE;
+	Config.apid = PORTAL_TITLE + WiFi.macAddress();
+	Config.psk = PORTAL_PW;
+	Config.autoReconnect = true;
+
+	Portal.config(Config);
+
+	Server.on("/", rootPage);
+	if (Portal.begin())
+	{
+		Serial.println("WiFi connected: " + WiFi.localIP().toString());
+	}
+	else
+	{
+		Serial.println("Error starting portal");
+	}
+
 	Serial.println("ready");
 }
 
 void loop()
 {
-	wifiConnect();
+	// wifiConnect();
 	brokerConnect();
 
 	client.loop();

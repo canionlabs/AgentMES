@@ -22,10 +22,10 @@
 // Cloud
 
 #define MQTT_BROKER "canionlabsmes.local"
-// #define MQTT_BROKER "192.168.0.79"
 #define MQTT_PORT 1883
 #define MQTT_USER "71b18f70"
 #define MQTT_PASS "5daf5773ea30f228"
+#define MQTT_QOS 1
 
 // Communication
 
@@ -43,5 +43,5 @@
 #define MES_DEVICE_ID "kalfix"
 
 // Connection
-#define WIFI_SSID "Automata 2G"
-#define WIFI_PASS "data.hal.johnny"
+#define PORTAL_PW "@#canionlabs@#"
+#define PORTAL_TITLE "MONAR"
