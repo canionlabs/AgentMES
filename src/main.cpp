@@ -10,10 +10,6 @@
 #define CONNECT_WAIT 30 * 1000 // 30 sec
 
 #include "mes_defines.h"
-
-// #include "TypeSelector.h"
-// #include "LedManager.h"
-
 #include "Arduino.h"
 
 // AutoConnect
@@ -50,11 +46,7 @@ PubSubClient client(espClient, MQTT_BROKER, MQTT_PORT);
 ESP8266WebServer Server;
 AutoConnect Portal(Server);
 AutoConnectConfig Config;
-
 Adafruit_SSD1306 display;
-
-// mes::TypeSelector typeSelector(INPUT_1, INPUT_2);
-// mes::LedManager ledManager(LED_RED, LED_GREEN, LED_BLUE);
 
 bool status = false;
 unsigned long last_up = 0;

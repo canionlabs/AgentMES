@@ -11,14 +11,6 @@
 
 #define INPUT_PIN 15
 
-// #define INPUT_1 4
-// #define INPUT_2 14
-
-// #define LED 2
-// #define LED_GREEN 12
-// #define LED_BLUE 13
-// #define LED_RED 15
-
 // Cloud
 
 #define MQTT_BROKER "canionlabsmes.local"
@@ -37,9 +29,6 @@
 
 // MES
 
-// #define MES_SERVER "http://mesadmin.canionlabs.io/api/receiver/"
-// #define MES_ORGANIZATION "canionlabs001"
-// #define MES_DEVICE_TYPE "esp8266"
 #define MES_DEVICE_ID "kalfix"
 
 // Connection
