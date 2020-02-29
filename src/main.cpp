@@ -66,7 +66,7 @@ void write(int x, int y, int size, String text)
 	display.print(text);
 }
 
-void updateView() // int current, int total, float value, float avg, String addr, int percent
+void updateView()
 {
 	display.clearDisplay();
 
@@ -76,19 +76,19 @@ void updateView() // int current, int total, float value, float avg, String addr
 		write(2, 0, 1, ": INICIANDO...");
 		break;
 	case CurrState::WIFI_DISCONNECTED:
-		write(2, 0, 1, ": WIFI DESCONECTADO");
+		write(2, 0, 1, ": WIFI OFF");
 		break;
 	case CurrState::WIFI_CONNECTED:
-		write(2, 0, 1, ": WIFI CONECTADO");
+		write(2, 0, 1, ": WIFI ON");
 		break;
 	case CurrState::SMART_CONFIG:
 		write(2, 0, 1, ": SMART CONFIG");
 		break;
 	case CurrState::BROKER_DISCONNECTED:
-		write(2, 0, 1, ": SERVIDOR DESCONECTADO");
+		write(2, 0, 1, ": SERVIDOR OFF");
 		break;
 	case CurrState::BROKER_CONNECTED:
-		write(2, 0, 1, ": SERVIDOR CONECTADO");
+		write(2, 0, 1, ": SERVIDOR ON");
 		break;
 	default:
 		write(2, 0, 1, "...");
@@ -96,76 +96,8 @@ void updateView() // int current, int total, float value, float avg, String addr
 	}
 
 	write(0, 10, 3, "T:" + String(selectedType));
-
-	// write(0, 0, 1, "hello world");
-	// write(0, 10, 1, addr);
-	// write(60, 0, 1, "AVG: " + String(avg));
-	// write(38, 9, 3, String(value));
-
-	// display.drawLine(percent, display.height() - 1, display.width() - 1, display.height() - 1, WHITE);
-
 	display.display();
 }
-
-// void wifiConnect()
-// {
-// 	if (WiFi.status() == WL_CONNECTED)
-// 	{
-// 		return;
-// 	}
-
-// #if defined(WIFI_SSID) && defined(WIFI_PASS)
-// 	WiFi.begin(WIFI_SSID, WIFI_PASS);
-// #endif
-
-// 	WiFi.mode(WIFI_STA);
-
-// 	state = CurrState::WIFI_DISCONNECTED;
-// 	updateView();
-
-// 	unsigned long wait_time = millis() + CONNECT_WAIT;
-
-// 	while (WiFi.status() != WL_CONNECTED)
-// 	{
-// 		delay(50);
-
-// 		// wait 30 sec to connect to wifi
-// 		if (wait_time < millis())
-// 		{
-// 			// enter SmartConfig mode
-// 			WiFi.beginSmartConfig();
-// 			state = CurrState::SMART_CONFIG;
-// 			updateView();
-
-// 			wait_time = millis() + CONNECT_WAIT;
-
-// 			while (true)
-// 			{
-// 				delay(50);
-
-// 				if (WiFi.smartConfigDone())
-// 				{
-// 					break;
-// 				}
-
-// 				// wait 30 sec on smart config
-// 				if (wait_time < millis())
-// 				{
-// 					// restart if smart config fails
-// 					ESP.restart();
-// 				}
-// 			}
-// 		}
-// 	}
-
-// 	if (WiFi.status() == WL_CONNECTED)
-// 	{
-// 		Serial.printf("Connected, mac address: %s\n", WiFi.macAddress().c_str());
-// 	}
-
-// 	state = CurrState::WIFI_CONNECTED;
-// 	updateView();
-// }
 
 void buildMessage(String *jsonStr, char type)
 {
@@ -187,23 +119,6 @@ void cfgHandler(const MQTT::Publish &pub)
 	}
 }
 
-// void cfgHandler(char *topic, byte *payload, unsigned int length)
-// {
-// 	if (strcmp(topic, MES_CFG_TOPIC) == 0)
-// 	{
-// 		selectedType = (char)payload[0];
-
-// 		// Allocate the correct amount of memory for the payload copy
-// 		byte *p = (byte *)malloc(length);
-// 		// Copy the payload to the new buffer
-// 		memcpy(p, payload, length);
-// 		client.publish(MES_DATA_TOPIC, p, length);
-
-// 		// Free the memory
-// 		free(p);
-// 	}
-// }
-
 void sendEvent()
 {
 	if (packageCount > 0 && client.connected() == true)
@@ -214,7 +129,6 @@ void sendEvent()
 		client.publish(MQTT::Publish(MES_DATA_TOPIC, msg.c_str()).set_qos(MQTT_QOS));
 
 		packageCount--;
-
 		Serial.println("send pkg");
 	}
 }
@@ -296,7 +210,6 @@ void setup()
 
 void loop()
 {
-	// wifiConnect();
 	brokerConnect();
 
 	client.loop();
