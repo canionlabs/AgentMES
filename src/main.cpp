@@ -35,9 +35,9 @@ enum CurrState
 CurrState state = CurrState::INIT;
 
 unsigned long nextReconnectAttempt = 0;
-unsigned long nextSend = 0;
 
 char selectedType = 'A';
+volatile unsigned long nextSend = 0;
 volatile byte packageCount = 0;
 
 WiFiClient espClient;
@@ -119,6 +119,11 @@ void cfgHandler(const MQTT::Publish &pub)
 	}
 }
 
+/**
+ * @brief  Publishes to broker that a package has been checked
+ * @note   This function will only perform the publish if a package was registered by the sensor
+ * @retval None
+ */
 void sendEvent()
 {
 	if (packageCount > 0 && client.connected() == true)
@@ -133,16 +138,25 @@ void sendEvent()
 	}
 }
 
-void event()
+/**
+ * @brief  Event Interrupt that will be invoked every time the sensor detects something passing by
+ * @retval None
+ */
+ICACHE_RAM_ATTR void event(void)
 {
 	if (nextSend < millis())
 	{
 		packageCount++;
 		nextSend = millis() + READ_RATE;
-		Serial.println("new pkg");
 	}
 }
 
+/**
+ * @brief  This method tries to connect this client to MQTT Broker
+ * @note   If the client is already connected, just return, if not, it will try to connect to the broker every 
+ *         RECONNECT_RATE millis
+ * @retval None
+ */
 void brokerConnect()
 {
 	if (client.connected() || nextReconnectAttempt > millis())
@@ -174,20 +188,25 @@ void brokerConnect()
 void setup()
 {
 	Serial.begin(115200);
-	while (!Serial)
-	{
-	}
-
-	display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+	while (!Serial) {}
 
 	state = CurrState::INIT;
+
+	// Start Display
+	display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
 	updateView();
+	// END Start Display
 
+	// Configure MQTT Client
 	client.set_callback(cfgHandler);
+	// END Configure MQTT Client
 
+	// Configure Sensor Input
 	pinMode(INPUT_PIN, INPUT_PULLUP);
-	attachInterrupt(INPUT_PIN, event, CHANGE);
+	attachInterrupt(digitalPinToInterrupt(INPUT_PIN), event, RISING);
+	// END Configure Sensor Input
 
+	// Configure AutoConnect
 	Config.title = PORTAL_TITLE;
 	Config.apid = PORTAL_TITLE + WiFi.macAddress();
 	Config.psk = PORTAL_PW;
@@ -204,6 +223,7 @@ void setup()
 	{
 		Serial.println("Error starting portal");
 	}
+	// END Configure AutoConnect
 
 	Serial.println("ready");
 }
