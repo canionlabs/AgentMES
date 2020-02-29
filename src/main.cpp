@@ -168,7 +168,11 @@ void brokerConnect()
 	updateView();
 
 #if defined(MQTT_USER) && defined(MQTT_PASS)
-	if (client.connect(MQTT::Connect(MES_DEVICE_ID).set_will(MES_WILL_TOPIC, MES_DEVICE_ID, 2, false).set_auth(MQTT_USER, MQTT_PASS)))
+	if (client.connect(
+		MQTT::Connect(MES_DEVICE_ID)
+		.set_will(MES_WILL_TOPIC, MES_DEVICE_ID, 2, false)
+		.set_auth(MQTT_USER, MQTT_PASS)
+	))
 #else
 	if (client.connect(MQTT::Connect(MES_DEVICE_ID).set_will(MES_WILL_TOPIC, MES_DEVICE_ID, 2, false)))
 #endif
@@ -177,9 +181,10 @@ void brokerConnect()
 		updateView();
 
 		// Once connected, publish an announcement...
-		client.publish(MES_STATE_TOPIC, MES_DEVICE_ID);
+		client.publish(MQTT::Publish(MES_STATE_TOPIC, MES_DEVICE_ID).set_qos(MQTT_QOS));
 
-		client.subscribe(MES_CFG_TOPIC);
+		// Subscribe to Config topic
+		client.subscribe(MQTT::Subscribe().add_topic(MES_CFG_TOPIC, MQTT_QOS));
 	}
 
 	nextReconnectAttempt = millis() + RECONNECT_RATE;
