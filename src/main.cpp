@@ -8,6 +8,7 @@
 #define READ_RATE 2000
 #define RECONNECT_RATE 5000
 #define CONNECT_WAIT 30 * 1000 // 30 sec
+#define PING_RATE 30 * 1000
 
 #include "mes_defines.h"
 #include "Arduino.h"
@@ -48,9 +49,7 @@ AutoConnect Portal(Server);
 AutoConnectConfig Config;
 Adafruit_SSD1306 display;
 
-bool status = false;
-unsigned long last_up = 0;
-bool long_blink = false;
+unsigned long last_ping = 0;
 
 void rootPage()
 {
@@ -135,6 +134,15 @@ void sendEvent()
 
 		packageCount--;
 		Serial.println("send pkg");
+	}
+}
+
+void ping()
+{
+	if (last_ping < millis() && client.connected() == true)
+	{
+		client.publish(MQTT::Publish(MES_PING_TOPIC, ".").set_qos(MQTT_QOS));
+		last_ping = PING_RATE + millis();
 	}
 }
 
@@ -239,6 +247,7 @@ void loop()
 
 	client.loop();
 	sendEvent();
+	ping();
 
 	updateView();
 
